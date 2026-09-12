@@ -273,7 +273,7 @@ object CalendarFeed {
             val zone =
                 when {
                   utc -> TimeZone.getTimeZone("UTC")
-                  p.params["TZID"] != null -> TimeZone.getTimeZone(p.params["TZID"])
+                  p.params["TZID"] != null -> resolveZone(p.params["TZID"]!!)
                   else -> TimeZone.getDefault()
                 }
             val fmt = SimpleDateFormat("yyyyMMdd'T'HHmmss", Locale.US)
@@ -282,6 +282,78 @@ object CalendarFeed {
           }
         }
         .getOrNull()
+  }
+
+
+  /**
+   * Windows/Exchange timezone names -> IANA ids. Outlook publishes `TZID=South Africa
+   * Standard Time` rather than `Africa/Johannesburg`, and [TimeZone.getTimeZone] answers
+   * **GMT** for any id it doesn't know — silently, with no way to tell that apart from a
+   * feed that really said GMT. That shifted every Exchange event by the viewer's UTC
+   * offset. Only the common zones are mapped; anything still unknown falls back to
+   * device-local (treated as floating), which is wrong by at most the sender's offset
+   * instead of always wrong by ours.
+   */
+  private val WINDOWS_ZONES =
+      mapOf(
+          "GMT Standard Time" to "Europe/London",
+          "Greenwich Standard Time" to "Atlantic/Reykjavik",
+          "W. Europe Standard Time" to "Europe/Berlin",
+          "Central Europe Standard Time" to "Europe/Budapest",
+          "Central European Standard Time" to "Europe/Warsaw",
+          "Romance Standard Time" to "Europe/Paris",
+          "W. Central Africa Standard Time" to "Africa/Lagos",
+          "South Africa Standard Time" to "Africa/Johannesburg",
+          "E. Africa Standard Time" to "Africa/Nairobi",
+          "Egypt Standard Time" to "Africa/Cairo",
+          "Morocco Standard Time" to "Africa/Casablanca",
+          "FLE Standard Time" to "Europe/Kiev",
+          "GTB Standard Time" to "Europe/Bucharest",
+          "Israel Standard Time" to "Asia/Jerusalem",
+          "Arabian Standard Time" to "Asia/Dubai",
+          "Arab Standard Time" to "Asia/Riyadh",
+          "India Standard Time" to "Asia/Kolkata",
+          "Russian Standard Time" to "Europe/Moscow",
+          "Turkey Standard Time" to "Europe/Istanbul",
+          "China Standard Time" to "Asia/Shanghai",
+          "Singapore Standard Time" to "Asia/Singapore",
+          "Tokyo Standard Time" to "Asia/Tokyo",
+          "Korea Standard Time" to "Asia/Seoul",
+          "SE Asia Standard Time" to "Asia/Bangkok",
+          "AUS Eastern Standard Time" to "Australia/Sydney",
+          "AUS Central Standard Time" to "Australia/Darwin",
+          "W. Australia Standard Time" to "Australia/Perth",
+          "New Zealand Standard Time" to "Pacific/Auckland",
+          "Eastern Standard Time" to "America/New_York",
+          "Central Standard Time" to "America/Chicago",
+          "Mountain Standard Time" to "America/Denver",
+          "US Mountain Standard Time" to "America/Phoenix",
+          "Pacific Standard Time" to "America/Los_Angeles",
+          "Alaskan Standard Time" to "America/Anchorage",
+          "Hawaiian Standard Time" to "Pacific/Honolulu",
+          "Atlantic Standard Time" to "America/Halifax",
+          "SA Pacific Standard Time" to "America/Bogota",
+          "SA Eastern Standard Time" to "America/Cayenne",
+          "SA Western Standard Time" to "America/La_Paz",
+          "E. South America Standard Time" to "America/Sao_Paulo",
+          "Argentina Standard Time" to "America/Argentina/Buenos_Aires",
+          "Central America Standard Time" to "America/Guatemala",
+          "UTC" to "UTC",
+      )
+
+  /**
+   * Resolve an ICS `TZID` to a real zone. Tries the id as-is, then the Windows->IANA
+   * table, and finally gives up to device-local rather than accepting Java's silent GMT.
+   */
+  internal fun resolveZone(tzid: String): TimeZone {
+    val id = tzid.trim().trim('"')
+    if (id.isEmpty()) return TimeZone.getDefault()
+    // getTimeZone() answers GMT for unknown ids, so only trust it when the id really is
+    // GMT/UTC or it round-trips to something else.
+    val direct = TimeZone.getTimeZone(id)
+    if (direct.id != "GMT" || id.equals("GMT", true) || id.equals("UTC", true)) return direct
+    WINDOWS_ZONES[id]?.let { return TimeZone.getTimeZone(it) }
+    return TimeZone.getDefault()
   }
 
   /** Resolve `\n`, `\,`, `\;`, `\\` text escapes used in SUMMARY/LOCATION. */
