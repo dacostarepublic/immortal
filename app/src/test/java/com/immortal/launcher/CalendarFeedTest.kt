@@ -1,6 +1,7 @@
 package com.immortal.launcher
 
 import java.util.Calendar
+import java.util.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,6 +19,40 @@ class CalendarFeedTest {
     assertFalse(CalendarFeed.isSupported("https://example.com/album/123"))
     assertFalse(CalendarFeed.isSupported(""))
     assertFalse(CalendarFeed.isSupported("not a url"))
+  }
+
+
+  @Test
+  fun resolveZone_mapsWindowsNamesFromExchangeFeeds() {
+    // Outlook/Exchange publish Windows zone names, not IANA ids.
+    assertEquals(
+        TimeZone.getTimeZone("Africa/Johannesburg").rawOffset,
+        CalendarFeed.resolveZone("South Africa Standard Time").rawOffset)
+    assertEquals(
+        TimeZone.getTimeZone("Europe/London").rawOffset,
+        CalendarFeed.resolveZone("GMT Standard Time").rawOffset)
+    assertEquals(
+        TimeZone.getTimeZone("America/New_York").rawOffset,
+        CalendarFeed.resolveZone("Eastern Standard Time").rawOffset)
+  }
+
+  @Test
+  fun resolveZone_keepsIanaAndUtcIdsWorking() {
+    assertEquals("Africa/Johannesburg", CalendarFeed.resolveZone("Africa/Johannesburg").id)
+    assertEquals("UTC", CalendarFeed.resolveZone("UTC").id)
+    assertEquals("GMT", CalendarFeed.resolveZone("GMT").id)
+    // Quoted TZIDs are legal in ICS.
+    assertEquals(
+        TimeZone.getTimeZone("Africa/Johannesburg").rawOffset,
+        CalendarFeed.resolveZone("\"South Africa Standard Time\"").rawOffset)
+  }
+
+  @Test
+  fun resolveZone_unknownFallsBackToLocalNotGmt() {
+    // The bug: getTimeZone() answers GMT for anything it doesn't know, shifting every
+    // event by the viewer's UTC offset. Prefer device-local over a silent GMT.
+    assertEquals(TimeZone.getDefault().id, CalendarFeed.resolveZone("Narnia Standard Time").id)
+    assertEquals(TimeZone.getDefault().id, CalendarFeed.resolveZone("").id)
   }
 
   @Test
